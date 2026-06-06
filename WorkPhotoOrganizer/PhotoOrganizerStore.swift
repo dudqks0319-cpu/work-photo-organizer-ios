@@ -223,6 +223,17 @@ final class PhotoOrganizerStore: ObservableObject {
         save()
     }
 
+    func setWorkMode(_ enabled: Bool) {
+        classificationSettings.workModeEnabled = enabled
+        saveSettings()
+    }
+
+    func reclassifyRecentPhotos(now: Date = Date()) {
+        records = PhotoOrganizerDomain.reclassifyRecentRecords(records, settings: classificationSettings, now: now)
+        selectedID = selectedRecord?.id ?? records.first?.id
+        save()
+    }
+
     func saveSettings() {
         if let data = try? JSONEncoder().encode(classificationSettings) {
             UserDefaults.standard.set(data, forKey: settingsKey)

@@ -84,6 +84,7 @@ struct WorkClassificationSettings: Codable, Equatable {
     var locationClassificationEnabled: Bool
     var scheduleClassificationEnabled: Bool
     var workModeEnabled: Bool
+    var timeZoneIdentifier: String
 
     init(
         companyName: String = "",
@@ -95,7 +96,8 @@ struct WorkClassificationSettings: Codable, Equatable {
         workEndHour: Int = 18,
         locationClassificationEnabled: Bool = false,
         scheduleClassificationEnabled: Bool = false,
-        workModeEnabled: Bool = false
+        workModeEnabled: Bool = false,
+        timeZoneIdentifier: String = TimeZone.current.identifier
     ) {
         self.companyName = companyName
         self.companyLatitude = companyLatitude
@@ -107,6 +109,22 @@ struct WorkClassificationSettings: Codable, Equatable {
         self.locationClassificationEnabled = locationClassificationEnabled
         self.scheduleClassificationEnabled = scheduleClassificationEnabled
         self.workModeEnabled = workModeEnabled
+        self.timeZoneIdentifier = timeZoneIdentifier
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        companyName = try container.decodeIfPresent(String.self, forKey: .companyName) ?? ""
+        companyLatitude = try container.decodeIfPresent(Double.self, forKey: .companyLatitude)
+        companyLongitude = try container.decodeIfPresent(Double.self, forKey: .companyLongitude)
+        companyRadiusMeters = try container.decodeIfPresent(Double.self, forKey: .companyRadiusMeters) ?? 300
+        workWeekdays = try container.decodeIfPresent(Set<Int>.self, forKey: .workWeekdays) ?? Set(2...6)
+        workStartHour = try container.decodeIfPresent(Int.self, forKey: .workStartHour) ?? 9
+        workEndHour = try container.decodeIfPresent(Int.self, forKey: .workEndHour) ?? 18
+        locationClassificationEnabled = try container.decodeIfPresent(Bool.self, forKey: .locationClassificationEnabled) ?? false
+        scheduleClassificationEnabled = try container.decodeIfPresent(Bool.self, forKey: .scheduleClassificationEnabled) ?? false
+        workModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .workModeEnabled) ?? false
+        timeZoneIdentifier = try container.decodeIfPresent(String.self, forKey: .timeZoneIdentifier) ?? TimeZone.current.identifier
     }
 }
 
@@ -357,6 +375,42 @@ enum PhotoOrganizerDomain {
         }
     }
 
+    static func reclassifyRecentRecords(
+        _ records: [WorkPhotoRecord],
+        settings: WorkClassificationSettings,
+        recentDays: Int = 7,
+        now: Date = Date()
+    ) -> [WorkPhotoRecord] {
+        let cutoff = now.addingTimeInterval(-Double(recentDays) * 24 * 60 * 60)
+        return records.map { record in
+            guard !record.isConfirmedWork else { return record }
+            let referenceDate = record.capturedAt ?? record.createdAt
+            guard referenceDate >= cutoff else { return record }
+
+            let candidate = PhotoImportCandidate(
+                name: record.fileName,
+                contentType: contentType(for: record.fileName),
+                size: record.size,
+                assetLocalIdentifier: record.assetLocalIdentifier,
+                isScreenshot: record.captureKind == .screenshot,
+                capturedAt: record.capturedAt,
+                latitude: record.latitude,
+                longitude: record.longitude
+            )
+            let classification = classify(file: candidate, settings: settings, now: now)
+            var updated = record
+            updated.isWorkCandidate = classification.isWorkCandidate
+            updated.classificationSource = classification.source
+            updated.classifiedAt = classification.source == .unknown ? nil : now
+            if classification.isWorkCandidate || updated.captureKind == .screenshot {
+                updated.status = updated.status == .done ? .done : .review
+            } else if updated.status == .review {
+                updated.status = .unclassified
+            }
+            return updated
+        }
+    }
+
     static func sanitizedText(_ value: String) -> String {
         value
             .filter { character in
@@ -421,7 +475,7 @@ enum PhotoOrganizerDomain {
 
     private static func isWithinWorkSchedule(_ date: Date, settings: WorkClassificationSettings) -> Bool {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        calendar.timeZone = TimeZone(identifier: settings.timeZoneIdentifier) ?? Calendar.current.timeZone
         let weekday = calendar.component(.weekday, from: date)
         let hour = calendar.component(.hour, from: date)
         return settings.workWeekdays.contains(weekday) &&
@@ -453,5 +507,16 @@ enum PhotoOrganizerDomain {
         let collapsed = String(replaced).replacingOccurrences(of: "_+", with: "_", options: .regularExpression)
         let trimmed = collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         return trimmed.isEmpty ? "미지정" : trimmed
+    }
+
+    private static func contentType(for fileName: String) -> String {
+        let lowercased = fileName.lowercased()
+        if lowercased.hasSuffix(".png") {
+            return "image/png"
+        }
+        if lowercased.hasSuffix(".webp") {
+            return "image/webp"
+        }
+        return "image/jpeg"
     }
 }

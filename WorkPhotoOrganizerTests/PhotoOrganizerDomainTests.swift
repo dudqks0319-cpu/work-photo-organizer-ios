@@ -60,7 +60,8 @@ final class PhotoOrganizerDomainTests: XCTestCase {
             workStartHour: 8,
             workEndHour: 18,
             locationClassificationEnabled: true,
-            scheduleClassificationEnabled: true
+            scheduleClassificationEnabled: true,
+            timeZoneIdentifier: "GMT"
         )
         let insideLocation = PhotoImportCandidate(
             name: "inside.jpg",
@@ -96,6 +97,144 @@ final class PhotoOrganizerDomainTests: XCTestCase {
         XCTAssertEqual(records[1].isWorkCandidate, true)
         XCTAssertEqual(records[1].classificationSource, .workSchedule)
         XCTAssertEqual(records[2].isWorkCandidate, false)
+    }
+
+    func testWorkScheduleUsesConfiguredTimeZone() {
+        let settings = WorkClassificationSettings(
+            workWeekdays: Set([2, 3, 4, 5, 6]),
+            workStartHour: 9,
+            workEndHour: 18,
+            scheduleClassificationEnabled: true,
+            timeZoneIdentifier: "Asia/Seoul"
+        )
+        let nineAMSeoul = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(identifier: "Asia/Seoul"),
+            year: 2026,
+            month: 6,
+            day: 5,
+            hour: 9
+        ).date
+        let sevenPMSeoul = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(identifier: "Asia/Seoul"),
+            year: 2026,
+            month: 6,
+            day: 5,
+            hour: 19
+        ).date
+
+        let records = PhotoOrganizerDomain.normalize(
+            files: [
+                PhotoImportCandidate(name: "nine.jpg", contentType: "image/jpeg", size: 1_000, capturedAt: nineAMSeoul),
+                PhotoImportCandidate(name: "seven.jpg", contentType: "image/jpeg", size: 1_000, capturedAt: sevenPMSeoul)
+            ],
+            settings: settings
+        )
+
+        XCTAssertEqual(records[0].isWorkCandidate, true)
+        XCTAssertEqual(records[0].classificationSource, .workSchedule)
+        XCTAssertEqual(records[1].isWorkCandidate, false)
+    }
+
+    func testWorkScheduleRespectsWeekendSelection() {
+        let saturdayTenAM = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(identifier: "Asia/Seoul"),
+            year: 2026,
+            month: 6,
+            day: 6,
+            hour: 10
+        ).date
+        let weekdayOnly = WorkClassificationSettings(
+            workWeekdays: Set([2, 3, 4, 5, 6]),
+            workStartHour: 9,
+            workEndHour: 18,
+            scheduleClassificationEnabled: true,
+            timeZoneIdentifier: "Asia/Seoul"
+        )
+        let saturdayEnabled = WorkClassificationSettings(
+            workWeekdays: Set([2, 3, 4, 5, 6, 7]),
+            workStartHour: 9,
+            workEndHour: 18,
+            scheduleClassificationEnabled: true,
+            timeZoneIdentifier: "Asia/Seoul"
+        )
+
+        let weekdayOnlyRecord = PhotoOrganizerDomain.normalize(
+            files: [PhotoImportCandidate(name: "sat.jpg", contentType: "image/jpeg", size: 1_000, capturedAt: saturdayTenAM)],
+            settings: weekdayOnly
+        ).first
+        let saturdayEnabledRecord = PhotoOrganizerDomain.normalize(
+            files: [PhotoImportCandidate(name: "sat.jpg", contentType: "image/jpeg", size: 1_000, capturedAt: saturdayTenAM)],
+            settings: saturdayEnabled
+        ).first
+
+        XCTAssertEqual(weekdayOnlyRecord?.isWorkCandidate, false)
+        XCTAssertEqual(saturdayEnabledRecord?.isWorkCandidate, true)
+        XCTAssertEqual(saturdayEnabledRecord?.classificationSource, .workSchedule)
+    }
+
+    func testReclassifyRecentRecordsPreservesConfirmedWork() {
+        let now = Date(timeIntervalSince1970: 1_780_740_000)
+        let settings = WorkClassificationSettings(workModeEnabled: true)
+        let records = [
+            WorkPhotoRecord(
+                id: "recent",
+                fileName: "recent.jpg",
+                siteName: "현장",
+                category: .site,
+                status: .unclassified,
+                assignee: "",
+                memo: "",
+                tags: [],
+                size: 100,
+                createdAt: now.addingTimeInterval(-60 * 60),
+                captureKind: .photo,
+                classificationSource: .unknown,
+                capturedAt: now.addingTimeInterval(-60 * 60)
+            ),
+            WorkPhotoRecord(
+                id: "confirmed",
+                fileName: "confirmed.jpg",
+                siteName: "현장",
+                category: .site,
+                status: .done,
+                assignee: "",
+                memo: "",
+                tags: [],
+                size: 100,
+                createdAt: now.addingTimeInterval(-60 * 60),
+                captureKind: .photo,
+                classificationSource: .manual,
+                capturedAt: now.addingTimeInterval(-60 * 60),
+                isWorkCandidate: true,
+                isConfirmedWork: true
+            ),
+            WorkPhotoRecord(
+                id: "old",
+                fileName: "old.jpg",
+                siteName: "현장",
+                category: .site,
+                status: .unclassified,
+                assignee: "",
+                memo: "",
+                tags: [],
+                size: 100,
+                createdAt: now.addingTimeInterval(-9 * 24 * 60 * 60),
+                captureKind: .photo,
+                classificationSource: .unknown,
+                capturedAt: now.addingTimeInterval(-9 * 24 * 60 * 60)
+            )
+        ]
+
+        let reclassified = PhotoOrganizerDomain.reclassifyRecentRecords(records, settings: settings, now: now)
+
+        XCTAssertEqual(reclassified[0].isWorkCandidate, true)
+        XCTAssertEqual(reclassified[0].classificationSource, .shortcutWorkMode)
+        XCTAssertEqual(reclassified[0].status, .review)
+        XCTAssertEqual(reclassified[1], records[1])
+        XCTAssertEqual(reclassified[2], records[2])
     }
 
     func testFilterCombinesSearchStatusAndCategory() {
@@ -163,6 +302,15 @@ final class PhotoOrganizerDomainTests: XCTestCase {
         XCTAssertFalse(json.contains("preview"))
         XCTAssertFalse(json.contains("assetLocalIdentifier"))
         XCTAssertFalse(json.contains("local-secret"))
+        XCTAssertFalse(json.contains("latitude"))
+        XCTAssertFalse(json.contains("longitude"))
+        XCTAssertFalse(json.contains("companyLatitude"))
+        XCTAssertFalse(json.contains("companyLongitude"))
+        XCTAssertFalse(json.contains("file://"))
+        XCTAssertFalse(json.contains("/Users/"))
+        XCTAssertFalse(json.contains("/var/mobile/"))
+        XCTAssertFalse(json.contains("UIImage"))
+        XCTAssertFalse(json.contains("previewImages"))
         XCTAssertEqual(payload.items.first?.suggestedName, "강남_역삼_3층__현장사진__현장_사진.jpg")
     }
 

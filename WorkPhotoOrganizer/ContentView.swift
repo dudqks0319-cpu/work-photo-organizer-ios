@@ -74,6 +74,16 @@ struct ContentView: View {
                 guard let destination else { return }
                 applyIntentDestination(destination)
             }
+            .onChange(of: intentRouter.workModeOverride) { _, enabled in
+                guard let enabled else { return }
+                store.setWorkMode(enabled)
+                intentRouter.workModeOverride = nil
+            }
+            .onChange(of: intentRouter.reclassifyRequestID) { _, requestID in
+                guard requestID != nil else { return }
+                store.reclassifyRecentPhotos()
+                intentRouter.reclassifyRequestID = nil
+            }
         }
     }
 
@@ -564,6 +574,7 @@ private struct SettingsSheetView: View {
     @State private var latitudeText = ""
     @State private var longitudeText = ""
     @State private var radiusText = ""
+    @State private var timeZoneText = ""
 
     var body: some View {
         NavigationStack {
@@ -581,6 +592,10 @@ private struct SettingsSheetView: View {
                 Section("업무 시간") {
                     Stepper("시작 \(store.classificationSettings.workStartHour)시", value: $store.classificationSettings.workStartHour, in: 0...23)
                     Stepper("종료 \(store.classificationSettings.workEndHour)시", value: $store.classificationSettings.workEndHour, in: 1...24)
+                    WeekdaySelector(selectedWeekdays: $store.classificationSettings.workWeekdays)
+                    TextField("타임존", text: $timeZoneText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     Toggle("업무 시간 후보 분류", isOn: $store.classificationSettings.scheduleClassificationEnabled)
                     Toggle("업무 모드", isOn: $store.classificationSettings.workModeEnabled)
                 }
@@ -602,6 +617,7 @@ private struct SettingsSheetView: View {
                 latitudeText = store.classificationSettings.companyLatitude.map { String($0) } ?? ""
                 longitudeText = store.classificationSettings.companyLongitude.map { String($0) } ?? ""
                 radiusText = String(format: "%.0f", store.classificationSettings.companyRadiusMeters)
+                timeZoneText = store.classificationSettings.timeZoneIdentifier
             }
         }
     }
@@ -612,8 +628,62 @@ private struct SettingsSheetView: View {
         if let radius = Double(radiusText), radius > 0 {
             store.classificationSettings.companyRadiusMeters = radius
         }
+        if TimeZone(identifier: timeZoneText) != nil {
+            store.classificationSettings.timeZoneIdentifier = timeZoneText
+        } else {
+            store.classificationSettings.timeZoneIdentifier = TimeZone.current.identifier
+        }
         store.saveSettings()
         store.saveFaceIDLockEnabled()
+    }
+}
+
+private struct WeekdaySelector: View {
+    @Binding var selectedWeekdays: Set<Int>
+
+    private let weekdays: [(label: String, value: Int)] = [
+        ("일", 1),
+        ("월", 2),
+        ("화", 3),
+        ("수", 4),
+        ("목", 5),
+        ("금", 6),
+        ("토", 7)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("근무요일")
+                .font(.subheadline)
+            HStack(spacing: 6) {
+                ForEach(weekdays, id: \.value) { weekday in
+                    Button {
+                        toggle(weekday.value)
+                    } label: {
+                        Text(weekday.label)
+                            .font(.caption.weight(.bold))
+                            .frame(width: 34, height: 34)
+                            .background(selectedWeekdays.contains(weekday.value) ? Color.teal.opacity(0.18) : Color(.secondarySystemGroupedBackground))
+                            .foregroundStyle(selectedWeekdays.contains(weekday.value) ? Color.teal : Color.secondary)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("weekday-\(weekday.value)")
+                }
+            }
+            Text("Calendar 기준: 1=일요일, 2=월요일, ... 7=토요일")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func toggle(_ weekday: Int) {
+        if selectedWeekdays.contains(weekday) {
+            selectedWeekdays.remove(weekday)
+        } else {
+            selectedWeekdays.insert(weekday)
+        }
     }
 }
 

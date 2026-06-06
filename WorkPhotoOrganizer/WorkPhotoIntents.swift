@@ -29,6 +29,8 @@ enum OrganizerDestination: String, AppEnum {
 final class AppIntentRouter: ObservableObject {
     static let shared = AppIntentRouter()
     @Published var destination: OrganizerDestination?
+    @Published var workModeOverride: Bool?
+    @Published var reclassifyRequestID: UUID?
 
     private init() {}
 }
@@ -102,19 +104,21 @@ struct SetWorkModeIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         UserDefaults.standard.set(enabled, forKey: "work-photo-organizer-ios:workModeEnabled")
         await MainActor.run {
+            AppIntentRouter.shared.workModeOverride = enabled
             AppIntentRouter.shared.destination = .candidates
         }
-        return .result(dialog: enabled ? "업무 모드를 켰습니다." : "업무 모드를 껐습니다.")
+        return .result(dialog: IntentDialog(enabled ? "업무 모드를 켰습니다." : "업무 모드를 껐습니다."))
     }
 }
 
 struct ReclassifyRecentPhotosIntent: AppIntent {
-    static let title: LocalizedStringResource = "최근 사진 재분류"
-    static let description = IntentDescription("앱을 열어 최근 업무 후보 사진을 다시 확인합니다.")
+    static let title: LocalizedStringResource = "등록된 최근 사진 재분류"
+    static let description = IntentDescription("앱에 등록된 최근 7일 사진을 현재 설정으로 다시 분류합니다.")
     static var openAppWhenRun: Bool { true }
 
     func perform() async throws -> some IntentResult {
         await MainActor.run {
+            AppIntentRouter.shared.reclassifyRequestID = UUID()
             AppIntentRouter.shared.destination = .candidates
         }
         return .result()
@@ -162,8 +166,8 @@ struct WorkPhotoOrganizerShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: ReclassifyRecentPhotosIntent(),
             phrases: [
-                "\(.applicationName)에서 최근 사진 재분류",
-                "\(.applicationName) 사진 다시 분류"
+                "\(.applicationName)에서 등록된 최근 사진 재분류",
+                "\(.applicationName) 등록 사진 다시 분류"
             ],
             shortTitle: "재분류",
             systemImageName: "arrow.triangle.2.circlepath"
