@@ -9,20 +9,25 @@
 
 - `test_sim` initially failed because `WorkPhotoOrganizer` app module did not exist.
 - After app files were added, `test_sim` failed at `AppIntentsSSUTraining` because processed `Info.plist` lacked required bundle keys.
+- v0.2 RED: `test_sim` failed after adding candidate-classification tests because `assetLocalIdentifier`, `CaptureKind`, `ClassificationSource`, `WorkClassificationSettings`, and v1 migration APIs did not exist.
 
 ## GREEN Evidence
 
-- `test_sim`: passed 4/4 domain tests.
+- `test_sim`: passed 8/8 domain tests.
+- Covered tests: multi-import validation, asset identifier dedupe, screenshot classification, work location candidate, work schedule candidate, export redaction, v1 migration, text sanitization.
 - `build_run_sim`: succeeded, installed and launched on iPhone 17 simulator.
-- Runtime UI snapshot: project summary, photo picker, category filter, photo grid, inspector, and export button visible.
-- UI interaction: dismissed Apple account modal, cleared search, tapped `검토` status filter, and verified grid reduced to review photos.
-- Screenshot: `/var/folders/dx/2zprs00s3050gd97w54748700000gn/T/screenshot_optimized_c337a878-4433-4178-bc1d-d37b0a32bc83.jpg`
+- Runtime UI snapshot: project summary counts, multi-photo picker, status filter, work candidate filter, capture kind filter, category filter, photo grid, inspector, settings button, and export button visible.
+- Settings UI snapshot: company name, latitude, longitude, radius, location classification, schedule classification, work mode, and Face ID/passcode lock controls visible.
+- Screenshot: `/var/folders/dx/2zprs00s3050gd97w54748700000gn/T/screenshot_optimized_40214109-9304-4642-90fd-0fdb9029cd9c.jpg`
 
 ## App Intents
 
 - `OpenPhotoOrganizerIntent`: opens the app to all/review/done/upload destinations.
 - `ShowReviewPhotosIntent`: opens the app filtered to review photos.
-- `WorkPhotoOrganizerShortcuts`: exposes Shortcuts phrases for opening the organizer and review photos.
+- `OpenWorkCandidatesIntent`: opens the app filtered to work candidates.
+- `SetWorkModeIntent`: writes local work-mode state and opens work candidates.
+- `ReclassifyRecentPhotosIntent`: opens the work candidate review surface.
+- `WorkPhotoOrganizerShortcuts`: exposes Shortcuts phrases for organizer, review photos, work candidates, work mode, and reclassification.
 
 ## Security Gate
 
@@ -31,7 +36,7 @@
 - Input validation: PASS. Domain accepts only JPEG, PNG, WebP under 20MB.
 - Output encoding: PASS. Stored text strips markup metacharacters.
 - Dependencies: PASS. No package dependencies added; XcodeGen is a local project generation tool.
-- Sensitive data minimization: PASS. Export payload excludes preview/raw photo data; original picked images are memory-only.
+- Sensitive data minimization: PASS. Export payload excludes preview/raw photo data, `assetLocalIdentifier`, location coordinates, base64, blob, and local file paths; original picked images are memory-only.
 - Abuse controls: N/A. No network, auth session, CSRF, replay, or server endpoint.
-- Negative-path tests: PASS. Unsupported/oversized images and markup metacharacter stripping covered.
-- Residual risk: PhotosPicker selection on simulator was not exercised because the simulator showed an Apple account verification modal before dismissal and has no known fixture library. Owner: user/product. Due: before TestFlight or real-device QA.
+- Negative-path tests: PASS. Unsupported/oversized images, duplicate asset IDs, export redaction, and markup metacharacter stripping covered.
+- Residual risk: Real-device PhotosPicker import with a real library, PHAsset screenshot subtype, real location metadata, and Face ID/passcode prompt behavior were not exercised on physical iPhone. Owner: user/product. Due: before TestFlight or production use.

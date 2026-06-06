@@ -24,5 +24,9 @@
   <dict/>
   <key>NSPhotoLibraryUsageDescription</key>
   <string>업무 사진을 선택해 현장명, 분류, 상태, 메모를 로컬에서 정리하기 위해 필요합니다.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>선택한 사진의 위치 메타데이터가 회사 반경 안인지 로컬에서 후보 판단하기 위해 사용합니다.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>업무 사진 정리함을 Face ID 또는 기기 암호로 잠그기 위해 사용합니다.</string>
 </dict>
 </plist>
